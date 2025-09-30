@@ -1,0 +1,95 @@
+import os
+import scanpy as sc
+import numpy as np
+
+# ------------------------------------
+# Load data
+# ------------------------------------
+file_path = r"C:\Users\aroche6\abc\adata_all_nk_after_mapping.h5ad"
+adata = sc.read_h5ad(file_path)
+
+# ------------------------------------
+# Genes to plot
+# ------------------------------------
+genes = ["NKG7","GNLY","CST3","MALAT1","SPINK2","KLRD1","HMOX1","IGFBP4","TRBV10-2"]
+
+# Keep only genes present
+genes_present = [g for g in genes if g in adata.var_names]
+genes_missing = [g for g in genes if g not in adata.var_names]
+if genes_missing:
+    print("⚠️ Missing genes (not in adata.var_names):", genes_missing)
+if not genes_present:
+    raise ValueError("None of the requested genes are in adata.var_names.")
+
+# ------------------------------------
+# Define your 3 groups (edit labels/filters as needed)
+# ------------------------------------
+groups = {
+    "GBM_all": (adata.obs["source"] == "glioblastoma"),
+    "TiCD56bright_glioblastoma": (adata.obs["subset_source"] == "TiCD56bright_glioblastoma"),
+    # 👉 Replace the third group below with whatever you need:
+    "TiCD56dim_glioblastoma": (adata.obs["subset_source"] == "TiCD56dim_glioblastoma"),
+}
+
+# ------------------------------------
+# Output directory for figures
+# ------------------------------------
+outdir = r"C:\Users\aroche6\abc\violin_plots"
+os.makedirs(outdir, exist_ok=True)
+sc.settings.figdir = outdir  # so sc.pl.violin(save=...) writes here
+
+# ------------------------------------
+# Helper: make one multi-gene violin per group
+# ------------------------------------
+def make_violin_for_group(ad, mask, label, gene_list):
+    ad_sub = ad[mask].copy()
+    n_cells = ad_sub.n_obs
+    if n_cells == 0:
+        print(f"⚠️ Skipping '{label}': no cells match this filter.")
+        return
+    print(f"Plotting {label}: {n_cells} cells; {len(gene_list)} genes")
+
+    # One figure with all genes (vertical stack)
+    # show=False prevents immediate display; save writes PNG into sc.settings.figdir
+    sc.pl.violin(
+        ad_sub,
+        keys=gene_list,
+        groupby=None,        # single violin per gene (no subgrouping)
+        stripplot=False,     # cleaner look
+        jitter=0,
+        rotation=0,
+        multi_panel=True,    # one panel per gene
+        show=False,
+        save=f"_{label}_violins.png"
+    )
+
+# ------------------------------------
+# Run for each group
+# ------------------------------------
+for label, mask in groups.items():
+    make_violin_for_group(adata, mask, label, genes_present)
+
+print(f"✅ Done. Figures saved under: {outdir}")
+
+# ------------------------------------
+# (Optional) Also make a single plot grouped by 'subset_source' for just the two NK subsets
+# ------------------------------------
+# This will put the two subsets side-by-side for each gene if both exist in your data.
+subset_levels = ["TiCD56bright_glioblastoma", "TiCD56dim_glioblastoma"]
+mask_any = adata.obs["subset_source"].isin(subset_levels)
+if mask_any.sum() > 0:
+    ad_sub = adata[mask_any].copy()
+    # Ensure category ordering (optional)
+    if "subset_source" in ad_sub.obs and ad_sub.obs["subset_source"].dtype.name == "category":
+        ad_sub.obs["subset_source"].cat.set_categories(subset_levels, inplace=True)
+    print(f"Grouped violin across NK subsets: {mask_any.sum()} cells")
+    sc.pl.violin(
+        ad_sub,
+        keys=genes_present,
+        groupby="subset_source",
+        stripplot=False,
+        jitter=0,
+        multi_panel=True,
+        show=False,
+        save="_subset_source_grouped.png"
+    )
